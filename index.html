@@ -47,6 +47,25 @@
   .divider{height:1px;background:var(--line);margin:16px 0}
   .tools{display:flex;flex-wrap:wrap;gap:8px}
   .tools button{flex:1 1 45%;font-size:13px;padding:9px}
+  /* конструктор промпта */
+  details.builder{border:1px solid var(--line);border-radius:12px;background:#0e1826;margin-top:4px}
+  details.builder[open]{border-color:#2c4a45}
+  details.builder>summary{cursor:pointer;padding:11px 12px;font-weight:600;font-size:13px;
+    color:var(--accent);list-style:none}
+  details.builder>summary::-webkit-details-marker{display:none}
+  details.builder>summary::before{content:'▸ ';}
+  details.builder[open]>summary::before{content:'▾ ';}
+  .bpad{padding:0 12px 12px}
+  .bpad label{margin-top:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+  .chip{font-size:12px;padding:5px 9px;border-radius:99px;border:1px solid var(--line);
+    background:#0c1420;color:var(--mut);cursor:pointer;user-select:none;transition:.12s}
+  .chip:hover{border-color:var(--accent)}
+  .chip.on{border-color:var(--accent);color:var(--accent);background:#0e2a27}
+  .chip.osug{border-style:dashed}
+  #b_out{min-height:52px;color:var(--ink)}
+  .btn-accent2{background:var(--accent2);color:#fff;width:100%;margin-top:12px}
+  .btn-accent2:hover{filter:brightness(1.08)}
   /* сцена */
   #view{flex:1;position:relative;min-width:0}
   canvas{display:block;width:100%;height:100%}
@@ -74,6 +93,65 @@
     <div class="pad">
       <h1>Текст → 3D-модель</h1>
       <p class="sub">Опишите объект — получите модель, покрутите её и скачайте STL для печати.</p>
+
+      <details class="builder" id="builder">
+        <summary>Конструктор промпта — соберёт качественное описание</summary>
+        <div class="bpad">
+          <label for="b_obj">Объект (лучше по-английски)</label>
+          <input id="b_obj" placeholder="ceramic mug, low-poly fox, gear…" autocomplete="off">
+          <div class="chips">
+            <span class="chip osug" data-o="ceramic mug">кружка</span>
+            <span class="chip osug" data-o="low-poly fox">лиса low-poly</span>
+            <span class="chip osug" data-o="mechanical gear">шестерня</span>
+            <span class="chip osug" data-o="phone stand">подставка</span>
+            <span class="chip osug" data-o="robot figurine">робот</span>
+            <span class="chip osug" data-o="keychain tag">брелок</span>
+            <span class="chip osug" data-o="flower pot">горшок</span>
+            <span class="chip osug" data-o="chess pawn">пешка</span>
+          </div>
+
+          <label>Форма / силуэт</label>
+          <div class="chips" data-group="form">
+            <span class="chip" data-t="rounded">округлый</span>
+            <span class="chip" data-t="cylindrical">цилиндр</span>
+            <span class="chip" data-t="symmetrical">симметричный</span>
+            <span class="chip" data-t="low-poly">low-poly</span>
+            <span class="chip" data-t="smooth surface">гладкий</span>
+            <span class="chip" data-t="flat base">плоское дно</span>
+            <span class="chip" data-t="compact">компактный</span>
+          </div>
+
+          <label>Стиль</label>
+          <div class="chips" data-group="pstyle">
+            <span class="chip" data-t="realistic">реалистичный</span>
+            <span class="chip" data-t="stylized">стилизованный</span>
+            <span class="chip" data-t="cartoon">мультяшный</span>
+            <span class="chip" data-t="sci-fi">sci-fi</span>
+            <span class="chip" data-t="steampunk">стимпанк</span>
+            <span class="chip" data-t="minimalist">минимализм</span>
+          </div>
+
+          <label>Под 3D-печать</label>
+          <div class="chips" data-group="print">
+            <span class="chip" data-t="solid">цельный</span>
+            <span class="chip" data-t="single connected object">одна деталь</span>
+            <span class="chip" data-t="flat bottom">плоское основание</span>
+            <span class="chip" data-t="thick sturdy parts">толстые части</span>
+            <span class="chip" data-t="no thin fragile parts">без тонких деталей</span>
+          </div>
+
+          <label for="b_extra">Детали (по желанию, по-английски)</label>
+          <input id="b_extra" placeholder="big eyes, curved spout, engraved pattern" autocomplete="off">
+
+          <label for="b_out">Итоговый промпт</label>
+          <textarea id="b_out" readonly placeholder="здесь соберётся английский промпт…"></textarea>
+
+          <label for="b_negp">Negative — что исключить</label>
+          <input id="b_negp" value="text, watermark, multiple objects, thin fragile parts, floating parts" autocomplete="off">
+
+          <button id="b_apply" class="btn-accent2">→ Перенести в описание</button>
+        </div>
+      </details>
 
       <label for="prompt">Описание объекта</label>
       <textarea id="prompt" placeholder="например: керамический чайник в форме тыквы&#10;или: шестерёнка, стилизованная под цветок&#10;или: миниатюрный космический корабль"></textarea>
@@ -109,7 +187,7 @@
       <p class="mini">
         Ключ хранится только в вашем браузере (localStorage) и уходит напрямую в Meshy.
         Получить: <a href="https://www.meshy.ai/api" target="_blank" rel="noopener">meshy.ai/api</a>
-        — есть бесплатные кредиты.
+        — API доступен на платном плане Pro ($20/мес).
       </p>
 
       <div class="divider"></div>
@@ -235,6 +313,38 @@ function setProgress(p){
   if(p!=null) bar.firstElementChild.style.width = Math.max(3,p)+'%';
 }
 
+/* ---------- конструктор промпта ---------- */
+function buildPrompt(){
+  const obj = $('b_obj').value.trim();
+  const pick = g => Array.from(document.querySelectorAll('.chips[data-group="'+g+'"] .chip.on')).map(c=>c.dataset.t);
+  const extra = $('b_extra').value.trim();
+  const parts = [];
+  if(obj) parts.push(obj);
+  parts.push(...pick('form'), ...pick('pstyle'), ...pick('print'));
+  if(extra) parts.push(extra);
+  $('b_out').value = parts.join(', ');
+}
+// чипсы-подсказки объекта — заполняют поле
+document.querySelectorAll('.chip.osug').forEach(c=>{
+  c.onclick = () => { $('b_obj').value = c.dataset.o; buildPrompt(); };
+});
+// переключаемые чипсы формы/стиля/печати
+document.querySelectorAll('.chips[data-group] .chip').forEach(c=>{
+  c.onclick = () => { c.classList.toggle('on'); buildPrompt(); };
+});
+$('b_obj').oninput = buildPrompt;
+$('b_extra').oninput = buildPrompt;
+// перенос собранного промпта в описание
+$('b_apply').onclick = () => {
+  buildPrompt();
+  const out = $('b_out').value.trim();
+  if(!out){ setStatus('Соберите промпт в конструкторе (укажите объект).', 'err'); return; }
+  $('prompt').value = out;
+  $('builder').open = false;
+  setStatus('Промпт перенесён в описание.', 'ok');
+  $('prompt').focus();
+};
+
 /* ---------- генерация через Meshy ---------- */
 $('go').onclick = generate;
 async function generate(){
@@ -249,15 +359,18 @@ async function generate(){
 
   let taskId;
   try{
+    const body = {
+      mode:'preview',
+      prompt,
+      art_style: $('style').value,
+      should_remesh: $('remesh').value === 'true'
+    };
+    const neg = ($('b_negp') && $('b_negp').value || '').trim();
+    if(neg) body.negative_prompt = neg;
     const res = await fetch(MESHY, {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body: JSON.stringify({
-        mode:'preview',
-        prompt,
-        art_style: $('style').value,
-        should_remesh: $('remesh').value === 'true'
-      })
+      body: JSON.stringify(body)
     });
     if(!res.ok){
       const txt = await res.text();
