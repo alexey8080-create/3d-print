@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>Текст → 3D-модель · генератор с просмотром и печатью</title>
+<style>
+  :root{ --bg:#0d1420; --panel:#131d2b; --line:#243343; --ink:#e8eef4; --mut:#8a9bad;
+    --accent:#22b8a6; --accent2:#3b82f6; --ok:#22c55e; --err:#f87171; --warn:#f59e0b; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Golos Text",-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
+  #app{display:flex;height:100%;width:100%}
+  /* панель */
+  #side{width:340px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;overflow-y:auto}
+  #side .pad{padding:16px}
+  h1{font-size:17px;margin:0 0 2px}
+  .sub{color:var(--mut);font-size:12px;margin:0 0 14px}
+  label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;font-weight:600}
+  textarea,input,select{width:100%;background:#0c1420;border:1px solid var(--line);color:var(--ink);
+    border-radius:10px;padding:10px 11px;font:inherit;font-size:14px;outline:none}
+  textarea{resize:vertical;min-height:72px;line-height:1.45}
+  textarea:focus,input:focus,select:focus{border-color:var(--accent)}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  button{cursor:pointer;border:none;border-radius:10px;font:inherit;font-weight:600;font-size:14px;
+    padding:11px 12px;transition:filter .15s,opacity .15s}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .btn-primary{background:var(--accent);color:#04231f;width:100%;margin-top:14px}
+  .btn-primary:hover:not(:disabled){filter:brightness(1.08)}
+  .btn-ghost{background:#1b2838;color:var(--ink)}
+  .btn-ghost:hover{background:#22344a}
+  .keybox{margin-top:8px}
+  .keyrow{display:flex;gap:8px;align-items:center}
+  .keyrow input{flex:1}
+  .mini{font-size:11px;color:var(--mut);margin-top:6px;line-height:1.4}
+  .mini a{color:var(--accent)}
+  #status{margin-top:12px;font-size:13px;min-height:18px}
+  #status.err{color:var(--err)}
+  #status.ok{color:var(--ok)}
+  .bar{height:8px;background:#0c1420;border:1px solid var(--line);border-radius:99px;
+    overflow:hidden;margin-top:8px;display:none}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    transition:width .3s}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+  .tools{display:flex;flex-wrap:wrap;gap:8px}
+  .tools button{flex:1 1 45%;font-size:13px;padding:9px}
+  /* сцена */
+  #view{flex:1;position:relative;min-width:0}
+  canvas{display:block;width:100%;height:100%}
+  #hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;
+    color:var(--mut);font-size:14px;pointer-events:none;padding:0 20px;max-width:420px}
+  #topbar{position:absolute;top:12px;right:12px;display:flex;gap:8px}
+  #topbar button{background:rgba(19,29,43,.85);backdrop-filter:blur(6px);border:1px solid var(--line);
+    color:var(--ink);width:40px;height:40px;padding:0;font-size:16px;border-radius:10px}
+  #topbar button.active{border-color:var(--accent);color:var(--accent)}
+  .badge{position:absolute;left:12px;top:12px;font-size:11px;color:var(--mut);
+    background:rgba(19,29,43,.7);border:1px solid var(--line);padding:4px 9px;border-radius:99px}
+  /* мобильный */
+  #handle{display:none}
+  @media (max-width:720px){
+    #app{flex-direction:column}
+    #side{width:100%;max-height:52%;border-right:none;border-bottom:1px solid var(--line);order:2}
+    #view{order:1;min-height:48%}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <aside id="side">
+    <div class="pad">
+      <h1>Текст → 3D-модель</h1>
+      <p class="sub">Опишите объект — получите модель, покрутите её и скачайте STL для печати.</p>
+
+      <label for="prompt">Описание объекта</label>
+      <textarea id="prompt" placeholder="например: керамический чайник в форме тыквы&#10;или: шестерёнка, стилизованная под цветок&#10;или: миниатюрный космический корабль"></textarea>
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label for="style" style="margin-top:0">Стиль</label>
+          <select id="style">
+            <option value="realistic">Реалистичный</option>
+            <option value="sculpture">Скульптура</option>
+          </select>
+        </div>
+        <div>
+          <label for="remesh" style="margin-top:0">Ремеш</label>
+          <select id="remesh">
+            <option value="true">Да (ровнее)</option>
+            <option value="false">Нет</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="go" class="btn-primary">Сгенерировать</button>
+      <div class="bar" id="bar"><i></i></div>
+      <div id="status"></div>
+
+      <div class="divider"></div>
+
+      <label for="key">API-ключ Meshy</label>
+      <div class="keyrow">
+        <input id="key" type="password" placeholder="msy_..." autocomplete="off">
+        <button class="btn-ghost" id="savekey" title="Сохранить в браузере">💾</button>
+      </div>
+      <p class="mini">
+        Ключ хранится только в вашем браузере (localStorage) и уходит напрямую в Meshy.
+        Получить: <a href="https://www.meshy.ai/api" target="_blank" rel="noopener">meshy.ai/api</a>
+        — есть бесплатные кредиты.
+      </p>
+
+      <div class="divider"></div>
+
+      <label style="margin-top:0">Модель</label>
+      <div class="tools">
+        <button class="btn-ghost" id="dl" disabled>⬇ Скачать STL</button>
+        <button class="btn-ghost" id="dlglb" disabled>⬇ GLB</button>
+      </div>
+      <p class="mini" id="corsnote">
+        Если генерация падает с ошибкой сети — это защита браузера (CORS) на API Meshy.
+        Тогда генерацию придётся звать через прокси/бэкенд. Просмотр и STL при этом работают.
+      </p>
+    </div>
+  </aside>
+
+  <div id="view">
+    <div class="badge">ЛКМ — вращать · колесо — зум · ПКМ — сдвиг</div>
+    <div id="topbar">
+      <button id="rot" title="Автоповорот">↻</button>
+      <button id="wire" title="Каркас">◫</button>
+      <button id="reset" title="Сбросить вид">⌂</button>
+    </div>
+    <div id="hint">Здесь появится ваша 3D-модель.<br>Введите описание, вставьте ключ Meshy и нажмите «Сгенерировать».</div>
+  </div>
+
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const MESHY = 'https://api.meshy.ai/openapi/v2/text-to-3d';
+
+/* ---------- сцена ---------- */
+const view = $('view');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1420);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 5000);
+camera.position.set(3, 2.4, 4);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+view.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotateSpeed = 2.2;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 1.1));
+const key1 = new THREE.DirectionalLight(0xffffff, 2.2); key1.position.set(5,8,6); scene.add(key1);
+const key2 = new THREE.DirectionalLight(0x88bbff, 0.8); key2.position.set(-6,3,-4); scene.add(key2);
+const grid = new THREE.GridHelper(10, 20, 0x2a3a4d, 0x1a2635); scene.add(grid);
+
+let current = null;           // корень загруженной модели
+let glbBlobUrl = null;        // для скачивания GLB
+
+function resize(){
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view); resize();
+
+function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); }
+loop();
+
+/* центрирование и подгонка под кадр */
+function frameObject(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  obj.position.sub(center);                 // в центр координат
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const s = 2.4 / maxDim; obj.scale.setScalar(s);
+  // сетку — под низ модели
+  grid.position.y = -(size.y * s) / 2;
+  controls.target.set(0,0,0);
+  camera.position.set(2.6, 1.9, 3.2);
+  controls.update();
+}
+
+function setModel(root){
+  if(current){ scene.remove(current); }
+  current = root; scene.add(root);
+  frameObject(root);
+  $('hint').style.display = 'none';
+  $('dl').disabled = false;
+  applyWire(wireOn);
+}
+
+/* ---------- элементы управления сценой ---------- */
+let rotOn=false, wireOn=false;
+$('rot').onclick = e => { rotOn=!rotOn; controls.autoRotate=rotOn; e.currentTarget.classList.toggle('active',rotOn); };
+$('wire').onclick = e => { wireOn=!wireOn; e.currentTarget.classList.toggle('active',wireOn); applyWire(wireOn); };
+$('reset').onclick = () => { if(current) frameObject(current); };
+function applyWire(on){
+  if(!current) return;
+  current.traverse(o=>{ if(o.isMesh && o.material){ o.material.wireframe = on; } });
+}
+
+/* ---------- ключ ---------- */
+const savedKey = localStorage.getItem('meshy_key');
+if(savedKey) $('key').value = savedKey;
+$('savekey').onclick = () => {
+  localStorage.setItem('meshy_key', $('key').value.trim());
+  setStatus('Ключ сохранён в браузере.', 'ok');
+};
+
+/* ---------- статус ---------- */
+function setStatus(t, cls){ const s=$('status'); s.textContent=t||''; s.className = cls||''; }
+function setProgress(p){
+  const bar=$('bar'); bar.style.display = p==null ? 'none':'block';
+  if(p!=null) bar.firstElementChild.style.width = Math.max(3,p)+'%';
+}
+
+/* ---------- генерация через Meshy ---------- */
+$('go').onclick = generate;
+async function generate(){
+  const prompt = $('prompt').value.trim();
+  const key = $('key').value.trim();
+  if(!prompt){ setStatus('Введите описание объекта.', 'err'); return; }
+  if(!key){ setStatus('Нужен API-ключ Meshy (см. поле ниже).', 'err'); return; }
+  localStorage.setItem('meshy_key', key);
+
+  $('go').disabled = true; $('dl').disabled = true; $('dlglb').disabled = true;
+  setStatus('Отправляю запрос в Meshy…'); setProgress(2);
+
+  let taskId;
+  try{
+    const res = await fetch(MESHY, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body: JSON.stringify({
+        mode:'preview',
+        prompt,
+        art_style: $('style').value,
+        should_remesh: $('remesh').value === 'true'
+      })
+    });
+    if(!res.ok){
+      const txt = await res.text();
+      throw new Error('Meshy '+res.status+': '+txt.slice(0,180));
+    }
+    const data = await res.json();
+    taskId = data.result || data.id;
+    if(!taskId) throw new Error('Не получил id задачи от Meshy.');
+  }catch(err){
+    fail(err, true); return;
+  }
+
+  // опрос статуса
+  setStatus('Генерация модели… это обычно 1–3 минуты.');
+  const t0 = Date.now();
+  try{
+    while(true){
+      await sleep(4000);
+      const r = await fetch(MESHY+'/'+taskId, {headers:{'Authorization':'Bearer '+key}});
+      if(!r.ok){ throw new Error('Опрос статуса: Meshy '+r.status); }
+      const t = await r.json();
+      setProgress(t.progress ?? 5);
+      if(t.status==='SUCCEEDED'){
+        const url = t.model_urls && (t.model_urls.glb);
+        if(!url) throw new Error('Модель готова, но нет ссылки на GLB.');
+        setStatus('Загружаю модель во вьюер…');
+        await loadGlb(url);
+        setStatus('Готово. Крутите модель и скачивайте STL.', 'ok');
+        setProgress(null);
+        break;
+      }
+      if(t.status==='FAILED' || t.status==='EXPIRED'){
+        throw new Error('Meshy: '+(t.task_error && t.task_error.message || t.status));
+      }
+      if(Date.now()-t0 > 6*60*1000){ throw new Error('Слишком долго (>6 мин), прервал ожидание.'); }
+    }
+  }catch(err){ fail(err, false); }
+  finally{ $('go').disabled = false; }
+}
+
+function fail(err, network){
+  console.error(err);
+  const msg = String(err && err.message || err);
+  const isCors = network && (err instanceof TypeError || /Failed to fetch|NetworkError/i.test(msg));
+  setStatus(isCors
+    ? 'Сеть/CORS: браузер заблокировал запрос к api.meshy.ai. Нужен прокси или бэкенд для вызова (см. пометку внизу панели).'
+    : 'Ошибка: '+msg, 'err');
+  setProgress(null);
+  $('go').disabled = false;
+}
+
+/* ---------- загрузка GLB + кнопки скачивания ---------- */
+const gltfLoader = new GLTFLoader();
+async function loadGlb(url){
+  // тянем как blob, чтобы работал экспорт и офлайн-скачивание
+  const resp = await fetch(url);
+  const buf = await resp.arrayBuffer();
+  if(glbBlobUrl) URL.revokeObjectURL(glbBlobUrl);
+  glbBlobUrl = URL.createObjectURL(new Blob([buf], {type:'model/gltf-binary'}));
+  $('dlglb').disabled = false;
+  await new Promise((resolve,reject)=>{
+    gltfLoader.parse(buf, '', gltf=>{ setModel(gltf.scene); resolve(); }, reject);
+  });
+}
+
+$('dl').onclick = () => {
+  if(!current) return;
+  const stl = new STLExporter().parse(current, {binary:true});
+  downloadBlob(new Blob([stl], {type:'model/stl'}), fileName('stl'));
+};
+$('dlglb').onclick = () => {
+  if(!glbBlobUrl) return;
+  const a=document.createElement('a'); a.href=glbBlobUrl; a.download=fileName('glb'); a.click();
+};
+function fileName(ext){
+  const base = ($('prompt').value.trim().slice(0,40) || 'model')
+    .replace(/[^\p{L}\p{N}]+/gu,'_').replace(/^_+|_+$/g,'').toLowerCase() || 'model';
+  return base+'.'+ext;
+}
+function downloadBlob(blob, name){
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+</script>
+</body>
+</html>
